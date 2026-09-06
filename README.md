@@ -12,7 +12,7 @@ Learning project and not production software.
 - **RESP protocol** -> parses and serializes the Redis Serialization Protocol, so any client can talk to it
 - **Concurrent connections** -> one go-routine per client
 - **Commands** -> `PING`, `SET`, `GET`, `HSET`, `HGET`, `HGETALL`
-- **Persistence** -> append-only file written on every write and replayed on startup
+- **Persistence** -> Append Only File (AOF) written on every write and replayed on startup
 
 ## License
 
