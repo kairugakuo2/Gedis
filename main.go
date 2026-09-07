@@ -7,18 +7,18 @@ import (
 )
 
 func main() {
-	fmt.Println("Lisening on port 6379!")
+	fmt.Println("Listening on port 6379!")
 
+	// Create a new server:
 	// net.Listen opens TCP socket on port 6379 + accepts connections
 	listener, err := net.Listen("tcp", ":6379")
 	if err != nil {
 		fmt.Println("Listener has failed to start: ", err)
 		return
 	}
+	defer listener.Close() // run when main exits with defer (like 'using' in C# for cleanup)
 
-	// run when main exits with defer (like 'using' in C# for cleanup)
-	defer listener.Close()
-
+	// Listen for connections
 	// block until a client connects -> then can read from / write to client
 	connection, err := listener.Accept()
 	if err != nil {
@@ -27,13 +27,10 @@ func main() {
 	}
 	defer connection.Close()
 
+	resp := NewResp(connection)
 	for {
-
-		// allocate empty byte array
-		buffer := make([]byte, 1024)
-
-		// fill buffer with what client sent + return written byte count
-		bytesRead, err := connection.Read(buffer)
+		// parse client message into Value struct
+		value, err := resp.Read()
 		if err != nil {
 			// io.EOF -> cleint hangs up cleanly
 			if err == io.EOF {
@@ -41,10 +38,10 @@ func main() {
 				break
 			}
 			fmt.Println("Error reading from client: ", err)
-			return
+			break
 		}
 
-		fmt.Printf("Reciebed %d bytes: %q\n", bytesRead, buffer[:bytesRead])
+		fmt.Println(value)
 
 		// reply wih a RESP simple string:
 		// '+' , the text, a carriave return, and newline
