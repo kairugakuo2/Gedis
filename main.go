@@ -28,28 +28,26 @@ func main() {
 	defer connection.Close()
 
 	resp := NewResp(connection)
+	writer := NewWriter(connection)
 	for {
 		// parse client message into Value struct
-		value, err := resp.Read()
-		if err != nil {
+		value, readErr := resp.Read()
+		if readErr != nil {
 			// io.EOF -> cleint hangs up cleanly
-			if err == io.EOF {
+			if readErr == io.EOF {
 				fmt.Println("Client has disconnected")
 				break
 			}
-			fmt.Println("Error reading from client: ", err)
+			fmt.Println("Error reading from client: ", readErr)
 			break
 		}
 
 		fmt.Println(value)
 
-		// reply wih a RESP simple string:
-		// '+' , the text, a carriave return, and newline
-		// currently ignoring wha client asked for and always say OK
-
-		_, err = connection.Write([]byte("+OK\r\n"))
-		if err != nil {
-			fmt.Println("Error writing to client: ", err)
+		// give writer a Value and let it serialize to RESP
+		writeErr := writer.Write(Value{typ: "string", str: "OK"})
+		if writeErr != nil {
+			fmt.Println("Error writing to client: ", writeErr)
 			break
 		}
 	}
