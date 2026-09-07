@@ -27,48 +27,58 @@ func main() {
 	}
 	defer aof.Close()
 
-	aof.Read(func(value Value) {
+	if err := aof.Read(func(value Value) {
+		if value.typ != "array" || len(value.array) == 0 {
+			fmt.Println("Skipping malformed entry in AOF")
+			return
+		}
+
 		command := strings.ToUpper(value.array[0].bulk)
 		args := value.array[1:]
 
 		handler, ok := Handlers[command]
 		if !ok {
-			fmt.Println("Invalid command: ", command)
+			fmt.Println("Invalid command in AOF: ", command)
 			return
 		}
 
 		handler(args)
-	})
-	// Listen for connections
-	// block until a client connects -> then can read from / write to client
-	connection, err := listener.Accept()
-	if err != nil {
-		fmt.Println("Connection failed to accept: ", err)
+	}); err != nil {
+		fmt.Println("Error replaying AOF: ", err)
 		return
 	}
+
+	// Accept connections forever, one goroutine per client
+	for {
+		connection, err := listener.Accept()
+		if err != nil {
+			fmt.Println("Connection failed to accept: ", err)
+			continue
+		}
+
+		go handleConnection(connection, aof)
+	}
+}
+
+func handleConnection(connection net.Conn, aof *Aof) {
 	defer connection.Close()
 
 	resp := NewResp(connection)
 	writer := NewWriter(connection)
+
 	for {
-		// parse client message into Value struct
-		value, readErr := resp.Read()
-		fmt.Println(value)
-		if readErr != nil {
-			// io.EOF -> cleint hangs up cleanly
-			if readErr == io.EOF {
+		value, err := resp.Read()
+		if err != nil {
+			if err == io.EOF {
 				fmt.Println("Client has disconnected")
-				break
+			} else {
+				fmt.Println("Error reading from client: ", err)
 			}
-			fmt.Println("Error reading from client: ", readErr)
-			break
+			return
 		}
-		if value.typ != "array" {
-			fmt.Println("Invalid request, expected array")
-			continue
-		}
-		if len(value.array) == 0 {
-			fmt.Println("Invalid request, expected array length > 0")
+
+		if value.typ != "array" || len(value.array) == 0 {
+			writer.Write(Value{typ: "error", str: "ERR expected non-empty array"})
 			continue
 		}
 
@@ -77,17 +87,19 @@ func main() {
 
 		handler, ok := Handlers[command]
 		if !ok {
-			fmt.Println("Invalid command: ", command)
-			writer.Write(Value{typ: "string", str: ""})
+			writer.Write(Value{typ: "error", str: "ERR unknown command '" + command + "'"})
 			continue
 		}
 
-		if command == "SET" || command == "HSET" {
-			aof.Write(value)
+		result := handler(args)
+
+		// Only persist writes that actually succeeded
+		if result.typ != "error" && (command == "SET" || command == "HSET") {
+			if err := aof.Write(value); err != nil {
+				fmt.Println("Error writing to AOF: ", err)
+			}
 		}
 
-		result := handler(args)
 		writer.Write(result)
 	}
-
 }

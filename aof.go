@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -12,33 +12,37 @@ import (
 // for persistence of data from memory -> disk
 type Aof struct {
 	file *os.File
-	rd   *bufio.Reader
 	mu   sync.Mutex
+	done chan struct{}
 }
 
 func NewAof(path string) (*Aof, error) {
 	// create file if doesn't exist / open if it does
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0666)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0666)
 	if err != nil {
 		return nil, err
 	}
 
-	// create reader to read from file
 	aof := &Aof{
 		file: f,
-		rd:   bufio.NewReader(f),
+		done: make(chan struct{}),
 	}
 
 	// start a goroutine to sync AOF to disk every 1 second while server running
 	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
 		for {
-			aof.mu.Lock()
-
-			aof.file.Sync()
-
-			aof.mu.Unlock()
-
-			time.Sleep(time.Second)
+			select {
+			case <-aof.done:
+				return
+			case <-ticker.C:
+				aof.mu.Lock()
+				if err := aof.file.Sync(); err != nil {
+					fmt.Println("Error syncing AOF: ", err)
+				}
+				aof.mu.Unlock()
+			}
 		}
 	}()
 
@@ -47,6 +51,8 @@ func NewAof(path string) (*Aof, error) {
 
 // properly close file
 func (aof *Aof) Close() error {
+	close(aof.done)
+
 	aof.mu.Lock()
 	defer aof.mu.Unlock()
 
@@ -71,18 +77,20 @@ func (aof *Aof) Read(callback func(value Value)) error {
 	aof.mu.Lock()
 	defer aof.mu.Unlock()
 
+	if _, err := aof.file.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+
 	resp := NewResp(aof.file)
 
 	for {
 		value, err := resp.Read()
-		if err == nil {
-			callback(value)
-		}
 		if err == io.EOF {
-			break
+			return nil
 		}
-		return err
+		if err != nil {
+			return err
+		}
+		callback(value)
 	}
-
-	return nil
 }

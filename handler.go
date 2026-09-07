@@ -25,7 +25,7 @@ var SETsMu = sync.RWMutex{} // for handling concurrent requests -> thread safe h
 
 func set(args []Value) Value {
 	if len(args) != 2 {
-		return Value{typ: "error", str: "ERROR: wrong number of arguments for 'set' command"}
+		return Value{typ: "error", str: "ERR wrong number of arguments for 'set' command"}
 	}
 	key := args[0].bulk
 	value := args[1].bulk
@@ -39,7 +39,7 @@ func set(args []Value) Value {
 
 func get(args []Value) Value {
 	if len(args) != 1 {
-		return Value{typ: "error", str: "ERROR: wrong number of arguments for 'get' command"}
+		return Value{typ: "error", str: "ERR wrong number of arguments for 'get' command"}
 	}
 
 	key := args[0].bulk
@@ -61,7 +61,7 @@ var HSETsMu = sync.RWMutex{}
 
 func hset(args []Value) Value {
 	if len(args) != 3 {
-		return Value{typ: "error", str: "ERROR: wrong number of arguments for 'hset' command"}
+		return Value{typ: "error", str: "ERR wrong number of arguments for 'hset' command"}
 	}
 
 	hash := args[0].bulk
@@ -112,17 +112,15 @@ func hgetall(args []Value) Value {
 	HSETsMu.RLock()
 
 	hashMap, ok := HSETs[hash]
+	elements := make([]Value, 0, len(hashMap)*2)
+	if ok {
+		for k, v := range hashMap {
+			elements = append(elements, Value{typ: "bulk", bulk: k})
+			elements = append(elements, Value{typ: "bulk", bulk: v})
+		}
+	}
 
 	HSETsMu.RUnlock()
 
-	if !ok {
-		return Value{typ: "null"}
-	}
-
-	var elements []Value
-	for k, v := range hashMap {
-		elements = append(elements, Value{typ: "bulk", bulk: k})
-		elements = append(elements, Value{typ: "bulk", bulk: v})
-	}
 	return Value{typ: "array", array: elements}
 }

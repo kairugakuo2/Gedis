@@ -16,6 +16,11 @@ const (
 	ARRAY   = '*'
 )
 
+const (
+	maxBulkSize = 512 * 1024 * 1024 // 512MB, same as Redis
+	maxArrayLen = 1024 * 1024
+)
+
 // parse / deserialize RESP commands from client
 type Value struct {
 	typ   string  // value
@@ -85,8 +90,7 @@ func (r *Resp) Read() (Value, error) {
 	case BULK:
 		return r.readBulk()
 	default:
-		fmt.Printf("Unknwon type: %v", string(_type))
-		return Value{}, nil
+		return Value{}, fmt.Errorf("unknown RESP type: %q", string(_type))
 	}
 }
 
@@ -98,6 +102,13 @@ func (r *Resp) readArray() (Value, error) {
 	length, _, err := r.readInteger()
 	if err != nil {
 		return v, err
+	}
+
+	if length < 0 {
+		return Value{typ: "null"}, nil
+	}
+	if length > maxArrayLen {
+		return v, fmt.Errorf("array too long: %d", length)
 	}
 
 	// foreach line, parse + read value
@@ -124,14 +135,24 @@ func (r *Resp) readBulk() (Value, error) {
 		return v, err
 	}
 
-	bulk := make([]byte, length)
+	if length < 0 {
+		return Value{typ: "null"}, nil
+	}
+	if length > maxBulkSize {
+		return v, fmt.Errorf("bulk string too large: %d", length)
+	}
 
-	r.reader.Read(bulk)
+	bulk := make([]byte, length)
+	if _, err := io.ReadFull(r.reader, bulk); err != nil {
+		return v, err
+	}
 
 	v.bulk = string(bulk)
 
 	// Read the trailing CRLF -> '\r\n'
-	r.readLine()
+	if _, _, err := r.readLine(); err != nil {
+		return v, err
+	}
 
 	return v, nil
 }
