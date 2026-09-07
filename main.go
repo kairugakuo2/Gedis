@@ -17,8 +17,28 @@ func main() {
 		fmt.Println("Listener has failed to start: ", err)
 		return
 	}
-	defer listener.Close() // run when main exits with defer (like 'using' in C# for cleanup)
+	defer listener.Close()
 
+	// Create or Open database Append Only File
+	aof, err := NewAof("database.aof")
+	if err != nil {
+		fmt.Println("Error creating or opening database Aof", err)
+		return
+	}
+	defer aof.Close()
+
+	aof.Read(func(value Value) {
+		command := strings.ToUpper(value.array[0].bulk)
+		args := value.array[1:]
+
+		handler, ok := Handlers[command]
+		if !ok {
+			fmt.Println("Invalid command: ", command)
+			return
+		}
+
+		handler(args)
+	})
 	// Listen for connections
 	// block until a client connects -> then can read from / write to client
 	connection, err := listener.Accept()
@@ -62,15 +82,12 @@ func main() {
 			continue
 		}
 
+		if command == "SET" || command == "HSET" {
+			aof.Write(value)
+		}
+
 		result := handler(args)
 		writer.Write(result)
-
-		// // give writer a Value and let it serialize to RESP
-		// writeErr := writer.Write(Value{typ: "string", str: "OK"})
-		// if writeErr != nil {
-		// 	fmt.Println("Error writing to client: ", writeErr)
-		// 	break
-		// }
 	}
 
 }
